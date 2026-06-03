@@ -142,6 +142,8 @@ tr:hover { background: var(--bg-hover); }
 }
 .summary-card .num { font-size: 28px; font-weight: 700; }
 .summary-card .label { font-size: 12px; color: var(--text-muted); }
+.summary-actions { grid-column: 1 / -1; display: flex; justify-content: center; padding: 8px 0; }
+.summary-actions .btn { font-size: 15px; padding: 10px 24px; }
 
 /* Annotation items */
 .annotation-item {

@@ -372,6 +372,7 @@ async function startReview() {
     loading.classList.add('hidden');
 
     if (res.ok) {
+      state.currentReviewDocId = docId;
       renderReviewResult(data.result);
     } else {
       alert(`审核失败: ${data.detail || '未知错误'}`);
@@ -417,6 +418,9 @@ function renderReviewResult(result) {
       <div class="num" style="color: var(--success);">${result.low_risk}</div>
       <div class="label">🟢 低风险</div>
     </div>
+    <div class="summary-actions">
+      <button class="btn btn-primary" onclick="downloadAnnotated()">⬇ 下载 AI 批注版</button>
+    </div>
   `;
 
   // Annotations
@@ -448,4 +452,11 @@ function matchLabel(t) {
 
 function truncate(s, max) {
   return s && s.length > max ? s.substring(0, max) + '...' : s;
+}
+
+function downloadAnnotated() {
+  const docId = state.currentReviewDocId;
+  if (!docId) { alert('请先进行审核'); return; }
+  // Open download in new tab (avoids auto redirect)
+  window.open(`${API}/api/review/${docId}/annotated`, '_blank');
 }

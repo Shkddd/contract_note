@@ -1,8 +1,10 @@
 """Contract review endpoints — run review and get results."""
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from ..services.db import get_db
 from ..services.annotator import run_review, get_review_result
+from ..services.annotated_export import export_annotated
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -49,3 +51,20 @@ def get_all_reviews():
         LIMIT 50
     """).fetchall()
     return [dict(r) for r in rows]
+
+
+@router.get("/{doc_id}/annotated")
+def download_annotated(doc_id: int):
+    """Download AI-annotated version of the reviewed contract."""
+    result = export_annotated(doc_id, "/tmp/contract_annotations")
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    import urllib.parse
+    safe_name = urllib.parse.quote(result["filename"])
+    return FileResponse(
+        path=result["filepath"],
+        media_type=result["mime"],
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}",
+        },
+    )
