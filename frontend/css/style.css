@@ -172,3 +172,16 @@ tr:hover { background: var(--bg-hover); }
 #uploadProgress, #reviewLoading { display: flex; align-items: center; gap: 8px; padding: 12px; }
 .kb-filters { display: flex; gap: 8px; margin-bottom: 12px; }
 .kb-filters select { padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); }
+
+/* KB import panel */
+.kb-import-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.kb-import-row { display: flex; align-items: center; gap: 10px; }
+.kb-import-row label { min-width: 70px; color: var(--text-muted); font-size: 13px; }
+.kb-import-inputs { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
+.kb-file-name { color: var(--text-muted); font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-status { color: var(--text-muted); font-size: 12px; }
+.kb-status.success { color: var(--success); }
+.kb-status.error { color: var(--danger); }
+.kb-source-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--bg); border-radius: var(--radius-sm); margin-bottom: 4px; }
+.kb-source-item .source-name { font-size: 13px; color: var(--text); }
+.kb-source-item .source-meta { font-size: 11px; color: var(--text-muted); }

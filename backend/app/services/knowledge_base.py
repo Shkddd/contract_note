@@ -1,13 +1,22 @@
-"""Knowledge base service — CRUD and semantic search against LLM."""
-
+"""Knowledge base service — CRUD and hybrid search against vector + BM25 indexes."""
 import json
 import re
-from typing import Optional
+from typing import Optional, List, Dict
 from .db import get_db
 from ..config import get_settings
+from .kb_vector import (
+    hybrid_search as vector_hybrid_search,
+    import_file as vec_import_file,
+    import_url as vec_import_url,
+    list_sources as vec_list_sources,
+    delete_source as vec_delete_source,
+    get_chunks as vec_get_chunks,
+)
 
 
-def list_entries(category: Optional[str] = None, search: Optional[str] = None) -> list[dict]:
+# ── Legacy KB CRUD (knowledge_base table) ──
+
+def list_entries(category: Optional[str] = None, search: Optional[str] = None) -> List[dict]:
     """List knowledge base entries, optionally filtered."""
     db = get_db()
     params = []
@@ -47,9 +56,7 @@ def update_entry(entry_id: int, **kwargs) -> Optional[dict]:
     fields = {k: v for k, v in kwargs.items() if v is not None}
     if not fields:
         return get_entry(entry_id)
-    fields["updated_at"] = "datetime('now', 'localtime')"
     set_clause = ", ".join(f"{k} = ?" for k in fields)
-    # Handle special case: updated_at is SQL expression
     set_clause = set_clause.replace("updated_at = ?", "updated_at = datetime('now', 'localtime')")
     vals = [v for k, v in fields.items() if k != "updated_at"]
     vals.append(entry_id)
@@ -65,87 +72,41 @@ def delete_entry(entry_id: int) -> bool:
     return db.total_changes > 0
 
 
-def list_categories() -> list[str]:
+def list_categories() -> List[str]:
     db = get_db()
     rows = db.execute("SELECT DISTINCT category FROM knowledge_base ORDER BY category").fetchall()
     return [r["category"] for r in rows]
 
 
-# ── LLM-augmented matching ──
+# ── Hybrid search (vector + BM25 across kb_chunks + legacy KB) ──
 
-def semantic_search(query: str, top_k: int = 5) -> list[dict]:
+def hybrid_search(query: str, top_k: int = 5) -> List[dict]:
+    """Hybrid search across both vector/BMI25 chunks and legacy KB entries.
+
+    Returns a combined, deduplicated list sorted by relevance.
     """
-    Search knowledge base by semantic relevance using LLM.
-    Returns top_k matching entries with relevance scores.
-    """
-    db = get_db()
-    all_entries = db.execute("SELECT * FROM knowledge_base ORDER BY id").fetchall()
-    if not all_entries:
-        return []
+    chunks = vector_hybrid_search(query, top_k=top_k)
 
-    settings = get_settings()
-    if not settings.llm_api_key:
-        # Fallback: keyword matching
-        return keyword_search(query, top_k)
+    # Also search legacy knowledge_base table
+    legacy = _legacy_search(query, top_k=top_k)
 
-    # Use LLM to rank relevance
-    kb_text = "\n\n".join([
-        f"[{e['id']}] {e['title']}（{e['category']}）\n{e['content'][:200]}"
-        for e in all_entries
-    ])
+    # Merge: prefer chunks, fill remaining slots with legacy entries
+    seen_ids = {c["id"] for c in chunks}
+    for e in legacy:
+        if len(chunks) >= top_k:
+            break
+        legacy_key = f"kb_{e['id']}"
+        if legacy_key not in seen_ids:
+            e["id"] = legacy_key
+            e["source_type"] = "legacy_kb"
+            e["score"] = e.pop("relevance", 50) / 100.0
+            chunks.append(e)
 
-    prompt = f"""你是一个合同审核专家。用户正在审核一份合同，需要找出知识库中最相关的标准条款。
-
-用户查询/合同文本：
-{query[:1000]}
-
-知识库条目：
-{kb_text}
-
-请判断哪些知识库条目与查询最相关。返回 JSON 数组，每个元素包含 id 和 relevance（0-100的整数分数）：
-[{{"id": 1, "relevance": 85}}, ...]
-
-只返回最相关的前{top_k}条（relevance >= 30）。如果都不相关，返回空数组 []。
-只输出 JSON，不要额外文字。"""
-
-    try:
-        import httpx
-        resp = httpx.post(
-            f"{settings.llm_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.llm_api_key}", "Content-Type": "application/json"},
-            json={
-                "model": settings.llm_model,
-                "messages": [{"role": "system", "content": "你是合同审核专家，擅长匹配合同条款与标准条款。"},
-                             {"role": "user", "content": prompt}],
-                "temperature": 0.1,
-                "max_tokens": 1024,
-            },
-            timeout=30,
-        )
-        result = resp.json()
-        content = result["choices"][0]["message"]["content"]
-
-        # Parse JSON from response
-        json_match = re.search(r"\[.*?\]", content, re.DOTALL)
-        if json_match:
-            matches = json.loads(json_match.group())
-            # Enrich with full entry data
-            entry_map = {e["id"]: dict(e) for e in all_entries}
-            enriched = []
-            for m in sorted(matches, key=lambda x: x["relevance"], reverse=True)[:top_k]:
-                entry = entry_map.get(m["id"])
-                if entry:
-                    entry["relevance"] = m["relevance"]
-                    enriched.append(entry)
-            return enriched
-    except Exception:
-        pass
-
-    return keyword_search(query, top_k)
+    return chunks[:top_k]
 
 
-def keyword_search(query: str, top_k: int = 5) -> list[dict]:
-    """Simple keyword fallback search."""
+def _legacy_search(query: str, top_k: int = 5) -> List[dict]:
+    """Search the legacy knowledge_base table with keyword + simple relevance."""
     db = get_db()
     words = [w for w in re.split(r"[，。、；：\s,.;: ]", query) if len(w) >= 2]
     if not words:
@@ -158,9 +119,36 @@ def keyword_search(query: str, top_k: int = 5) -> list[dict]:
         params.extend([like, like, like])
 
     rows = db.execute(
-        f"SELECT *, (CASE WHEN {' + '.join(['1'] * len(words))} END) as relevance "
+        f"SELECT *, 1 as relevance "
         f"FROM knowledge_base WHERE {like_clauses} "
         f"ORDER BY risk_level DESC, id ASC LIMIT ?",
         params + [top_k],
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Vector store operations (forwarded from kb_vector) ──
+
+def import_file(file_path: str) -> Optional[int]:
+    """Import a PDF/DOCX file into the vector KB."""
+    return vec_import_file(file_path)
+
+
+def import_url(url: str) -> Optional[int]:
+    """Fetch text from URL and import into the vector KB."""
+    return vec_import_url(url)
+
+
+def list_sources() -> List[dict]:
+    """List imported KB sources."""
+    return vec_list_sources()
+
+
+def delete_source(source_id: int) -> bool:
+    """Delete an imported KB source and its chunks."""
+    return vec_delete_source(source_id)
+
+
+def get_chunks(source_id: int = None, query: str = None, top_k: int = 20) -> List[dict]:
+    """List or search chunks."""
+    return vec_get_chunks(source_id, query, top_k)

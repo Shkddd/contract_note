@@ -87,6 +87,27 @@ def init_db():
             FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
         );
 
+        -- Knowledge base: imported sources (files / URLs)
+        CREATE TABLE IF NOT EXISTS kb_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL DEFAULT 'file',  -- 'file' | 'url'
+            source_name TEXT NOT NULL,
+            source_url TEXT DEFAULT '',
+            chunk_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        -- Knowledge base: text chunks with embeddings
+        CREATE TABLE IF NOT EXISTS kb_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            embedding BLOB,       -- numpy float32 vector serialized
+            metadata TEXT DEFAULT '{}',
+            FOREIGN KEY (source_id) REFERENCES kb_sources(id) ON DELETE CASCADE
+        );
+
         -- Insert sample knowledge base entries if empty
         INSERT OR IGNORE INTO knowledge_base (id, title, category, content, risk_level, tags)
         VALUES

@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupUpload();
   setupKb();
+  setupKbImport();
   setupReview();
   loadReviewDocs();
 });
@@ -199,7 +200,7 @@ async function loadKbCategories() {
 
 async function loadKbEntries(category = '', search = '') {
   try {
-    let url = `${API}/api/kb`;
+    let url = `${API}/api/kb/entries`;
     const params = new URLSearchParams();
     if (category) params.set('category', category);
     if (search) params.set('search', search);
@@ -304,7 +305,7 @@ async function saveKbEntry() {
   }
 
   try {
-    const url = id ? `${API}/api/kb/${id}` : `${API}/api/kb`;
+    const url = id ? `${API}/api/kb/entries/${id}` : `${API}/api/kb/entries`;
     const method = id ? 'PUT' : 'POST';
     const res = await fetch(url, {
       method,
@@ -332,8 +333,108 @@ function editKbEntry(id) {
 
 async function deleteKbEntry(id) {
   if (!confirm('确定删除此标准条款？')) return;
-  await fetch(`${API}/api/kb/${id}`, { method: 'DELETE' });
+  await fetch(`${API}/api/kb/entries/${id}`, { method: 'DELETE' });
   loadKbEntries();
+}
+
+// ── KB Import (vector store) ──
+
+function setupKbImport() {
+  const fileInput = document.getElementById('kbFileInput');
+  const selectBtn = document.getElementById('kbSelectFileBtn');
+  const importFileBtn = document.getElementById('kbImportFileBtn');
+  const importUrlBtn = document.getElementById('kbImportUrlBtn');
+  if (!selectBtn) return;  // page not loaded yet
+  selectBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const nameEl = document.getElementById('kbFileName');
+    nameEl.textContent = fileInput.files[0] ? fileInput.files[0].name : '';
+    document.getElementById('kbFileStatus').textContent = '';
+  });
+  importFileBtn.addEventListener('click', importKbFile);
+  importUrlBtn.addEventListener('click', importKbUrl);
+  document.querySelector('.tab-btn[data-tab="knowledge"]').addEventListener('click', loadKbSources);
+  loadKbSources();
+}
+
+async function importKbFile() {
+  const fileInput = document.getElementById('kbFileInput');
+  const status = document.getElementById('kbFileStatus');
+  if (!fileInput.files[0]) { status.textContent = '请先选择文件'; status.className = 'kb-status error'; return; }
+  status.textContent = '导入中...'; status.className = 'kb-status';
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  try {
+    const res = await fetch(`${API}/api/kb/import-file`, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (res.ok) {
+      status.textContent = '✅ 导入成功'; status.className = 'kb-status success';
+      fileInput.value = ''; document.getElementById('kbFileName').textContent = '';
+      loadKbSources();
+    } else {
+      status.textContent = `❌ ${data.detail || '导入失败'}`; status.className = 'kb-status error';
+    }
+  } catch (e) {
+    status.textContent = '❌ 网络错误'; status.className = 'kb-status error';
+  }
+}
+
+async function importKbUrl() {
+  const urlInput = document.getElementById('kbUrlInput');
+  const status = document.getElementById('kbUrlStatus');
+  if (!urlInput.value.trim() || !urlInput.value.startsWith('http')) {
+    status.textContent = '请输入有效 URL'; status.className = 'kb-status error'; return;
+  }
+  status.textContent = '导入中...'; status.className = 'kb-status';
+  try {
+    const formData = new URLSearchParams();
+    formData.append('url', urlInput.value.trim());
+    const res = await fetch(`${API}/api/kb/import-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData,
+    });
+    const data = await res.json();
+    if (res.ok) {
+      status.textContent = '✅ 导入成功'; status.className = 'kb-status success';
+      urlInput.value = '';
+      loadKbSources();
+    } else {
+      status.textContent = `❌ ${data.detail || '导入失败'}`; status.className = 'kb-status error';
+    }
+  } catch (e) {
+    status.textContent = '❌ 网络错误'; status.className = 'kb-status error';
+  }
+}
+
+async function loadKbSources() {
+  const el = document.getElementById('kbSourceList');
+  try {
+    const res = await fetch(`${API}/api/kb/sources`);
+    if (!res.ok) return;
+    const sources = await res.json();
+    if (!sources.length) {
+      el.innerHTML = '<p class="empty-state">暂无导入文档</p>';
+      return;
+    }
+    el.innerHTML = sources.map(s => `
+      <div class="kb-source-item">
+        <div>
+          <div class="source-name">${s.source_name}</div>
+          <div class="source-meta">${s.source_type === 'url' ? '🌐 URL' : '📄 文件'} · ${s.chunk_count || 0} 个片段</div>
+        </div>
+        <button class="btn btn-sm btn-danger" onclick="deleteKbSource(${s.id})">删除</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = '<p class="empty-state">加载失败</p>';
+  }
+}
+
+async function deleteKbSource(id) {
+  if (!confirm('确定删除？关联的向量数据也会删除。')) return;
+  await fetch(`${API}/api/kb/sources/${id}`, { method: 'DELETE' });
+  loadKbSources();
 }
 
 // ═══════════════════════════════════════════
