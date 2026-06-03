@@ -58,6 +58,14 @@ python -m uvicorn app.main:app --port 8001 --reload
 # 4. 打开浏览器
 open http://localhost:8001
 ```
+<img width="2856" height="1382" alt="image" src="https://github.com/user-attachments/assets/f0814be3-aaca-4016-9001-4dbb3001e4c8" />
+
+<img width="2934" height="1320" alt="image" src="https://github.com/user-attachments/assets/d3d92063-e76e-4050-989a-8c4957001eab" />
+<img width="2938" height="1358" alt="image" src="https://github.com/user-attachments/assets/b1b05140-435d-4f6e-886b-1b54534b4a7d" />
+<img width="2448" height="1472" alt="image" src="https://github.com/user-attachments/assets/248940c3-99fd-40c1-80cb-f9619fc7bfcf" />
+
+
+
 
 ## 使用流程
 
